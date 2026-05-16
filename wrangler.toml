@@ -1,0 +1,28 @@
+name = "sir-auth"
+main = "build/worker.mjs"
+compatibility_date = "2024-09-01"
+account_id = "2712d214b23c083a4283f310728aa4bb"
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
+[build]
+command = "make build-std"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "sir-auth-db"
+database_id = "REPLACE_WITH_D1_ID"
+migrations_dir = "migrations"
