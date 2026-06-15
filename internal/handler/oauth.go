@@ -358,7 +358,7 @@ func renderLoginForm(w http.ResponseWriter, clientName, clientID, redirectURI, s
 	errorHTML := ""
 	if errorMsg != "" {
 		errorHTML = fmt.Sprintf(`
-		<div class="w-full p-4 mb-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 text-sm flex items-start gap-3 text-left">
+		<div class="w-full p-4 mb-6 rounded-[12px] bg-[#cf202f]/5 border border-[#cf202f]/20 text-[#cf202f] text-sm flex items-start gap-3 text-left">
 		  <svg class="w-5 h-5 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
 		  <span>%s</span>
 		</div>`, htmlEscape(errorMsg))
@@ -381,63 +381,82 @@ const loginFormHTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign in — %s</title>
-  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.2/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { background-color: #020617; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; overflow-x: hidden; }
-    .glass-panel { background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
-    .glass-btn { background: linear-gradient(to right, #7c3aed, #4f46e5); transition: all 0.3s; border: none; }
-    .glass-btn:hover { transform: translateY(-2px); box-shadow: 0 0 20px rgba(99,102,241,0.6); }
-    .ambient-orb { position: absolute; border-radius: 50%%; mix-blend-mode: screen; pointer-events: none; }
-    @keyframes float { 0%%, 100%% { transform: translateY(0) scale(1); } 50%% { transform: translateY(-20px) scale(1.05); } }
-    @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-    .orb-1 { animation: float 10s infinite ease-in-out; }
-    .orb-2 { animation: float 12s infinite ease-in-out reverse; }
-    .animate-slide-up { animation: slide-up 0.5s ease-out forwards; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background-color: #ffffff;
+      color: #0a0b0d;
+    }
   </style>
 </head>
-<body class="min-h-screen flex items-center justify-center relative">
-  <div class="ambient-orb orb-1 bg-violet-600/30 w-[500px] h-[500px] top-[-10%%] left-[-10%%] blur-[80px]"></div>
-  <div class="ambient-orb orb-2 bg-indigo-600/20 w-[600px] h-[600px] bottom-[-20%%] right-[-10%%] blur-[100px]"></div>
+<body class="min-h-screen flex flex-col justify-between">
+  <!-- Header -->
+  <header class="w-full h-16 border-b border-[#dee1e6] flex items-center justify-between px-6 md:px-12 bg-white">
+    <div class="flex items-center gap-2">
+      <div class="w-8 h-8 rounded-full bg-[#0052ff] flex items-center justify-center text-white shadow-sm">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <span class="text-xl font-bold tracking-tight text-[#0a0b0d]">SIR</span>
+    </div>
+    <div class="text-sm font-medium text-[#5b616e]">
+      Secure Authorization
+    </div>
+  </header>
 
-  <div class="relative z-10 w-full max-w-md px-6 animate-slide-up">
-    <div class="glass-panel rounded-3xl p-10 flex flex-col items-center text-center">
-      <div class="w-20 h-20 mb-6 flex items-center justify-center rounded-3xl bg-gradient-to-tr from-violet-500/20 to-fuchsia-500/20 border border-white/20 shadow-[0_0_30px_rgba(139,92,246,0.3)]">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-10 h-10 text-white"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+  <!-- Main Content -->
+  <main class="flex-grow flex items-center justify-center px-6 py-12 bg-[#f7f7f7]">
+    <div class="w-full max-w-[450px] bg-white border border-[#dee1e6] rounded-[24px] p-8 md:p-10 shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+      <!-- Headings -->
+      <div class="text-center md:text-left mb-8">
+        <h1 class="text-2xl font-semibold tracking-tight text-[#0a0b0d] mb-2">Sign in to %s</h1>
+        <p class="text-[#5b616e] text-sm">Use your email address and password to continue.</p>
       </div>
 
-      <h1 class="text-3xl font-extrabold tracking-tight mb-2 bg-gradient-to-br from-white via-indigo-100 to-indigo-400 bg-clip-text text-transparent">Authorize Access</h1>
-      <p class="text-slate-400 text-sm font-medium tracking-wide mb-8 uppercase">SIGN IN TO %s</p>
-
+      <!-- Error Alert -->
       %s
 
-      <form method="POST" action="/oauth/authorize" class="w-full flex flex-col gap-5 text-left">
+      <!-- Login Form -->
+      <form method="POST" action="/oauth/authorize" class="w-full flex flex-col gap-6">
         <input type="hidden" name="client_id" value="%s">
         <input type="hidden" name="redirect_uri" value="%s">
         <input type="hidden" name="state" value="%s">
         <input type="hidden" name="scope" value="%s">
 
-        <div class="form-control w-full">
-          <div class="relative">
-            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <svg class="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207" /></svg>
-            </div>
-            <input type="email" name="email" required placeholder="Email Address" class="input w-full pl-12 bg-slate-900/50 border border-white/10 text-white placeholder-slate-500 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all rounded-xl h-12">
-          </div>
+        <div class="flex flex-col gap-2">
+          <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Email Address</label>
+          <input type="email" name="email" required placeholder="name@example.com" class="w-full h-12 px-4 bg-white border border-[#dee1e6] rounded-[12px] text-[#0a0b0d] placeholder-[#7c828a] focus:border-[#0052ff] focus:ring-2 focus:ring-[#0052ff]/10 outline-none transition-all text-sm font-medium">
         </div>
 
-        <div class="form-control w-full">
-          <div class="relative">
-            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-              <svg class="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-            </div>
-            <input type="password" name="password" required placeholder="Password" class="input w-full pl-12 bg-slate-900/50 border border-white/10 text-white placeholder-slate-500 focus:border-fuchsia-500 focus:ring-1 focus:ring-fuchsia-500 transition-all rounded-xl h-12">
+        <div class="flex flex-col gap-2">
+          <div class="flex justify-between items-center">
+            <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Password</label>
           </div>
+          <input type="password" name="password" required placeholder="Enter password" class="w-full h-12 px-4 bg-white border border-[#dee1e6] rounded-[12px] text-[#0a0b0d] placeholder-[#7c828a] focus:border-[#0052ff] focus:ring-2 focus:ring-[#0052ff]/10 outline-none transition-all text-sm font-medium">
         </div>
 
-        <button type="submit" class="btn glass-btn w-full h-14 mt-2 rounded-2xl text-white font-semibold text-lg shadow-lg">Authenticate</button>
+        <button type="submit" class="w-full h-12 bg-[#0052ff] hover:bg-[#003ecc] text-white font-semibold rounded-full transition-all text-sm shadow-sm flex items-center justify-center gap-2 mt-2">
+          Continue
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
       </form>
     </div>
-  </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="w-full py-6 border-t border-[#dee1e6] flex flex-col md:flex-row items-center justify-between px-6 md:px-12 bg-white text-xs text-[#7c828a] gap-4">
+    <div class="flex items-center gap-4">
+      <span>© 2026 SIR Labs</span>
+      <span class="w-1.5 h-1.5 rounded-full bg-[#dee1e6]"></span>
+      <span>Regulated and Secured</span>
+    </div>
+    <div class="flex gap-6">
+      <a href="#" class="hover:text-[#0052ff] transition-colors">Privacy Policy</a>
+      <a href="#" class="hover:text-[#0052ff] transition-colors">Terms of Service</a>
+    </div>
+  </footer>
 </body>
 </html>`
