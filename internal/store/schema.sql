@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    BIGINT NOT NULL
 );
 
+-- Self-registered accounts need admin approval. Admins are always (re)approved so
+-- the pre-existing admin can never be locked out by this migration.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS approved BOOLEAN NOT NULL DEFAULT FALSE;
+UPDATE users SET approved = TRUE WHERE role = 'admin';
+
 CREATE TABLE IF NOT EXISTS auth_codes (
   code         TEXT PRIMARY KEY,
   client_id    TEXT NOT NULL REFERENCES oauth_clients(client_id),

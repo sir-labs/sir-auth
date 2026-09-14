@@ -15,6 +15,7 @@ type User struct {
 	Salt         string `gorm:"column:salt;not null"`
 	Role         string `gorm:"column:role;not null;default:user"`
 	CreatedAt    int64  `gorm:"column:created_at;autoCreateTime:unix"`
+	Approved     bool   `gorm:"column:approved;not null"`
 
 	AuthCodes     []AuthCode     `gorm:"foreignKey:UserID"`
 	RefreshTokens []RefreshToken `gorm:"foreignKey:UserID"`

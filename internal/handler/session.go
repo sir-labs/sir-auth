@@ -100,6 +100,12 @@ func Login(w http.ResponseWriter, r *http.Request) {
 			renderSessionLogin(w, rd, "Incorrect email or password. Please try again.")
 			return
 		}
+		if !user.Approved {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.WriteHeader(http.StatusForbidden)
+			renderSessionLogin(w, rd, pendingMsg)
+			return
+		}
 		ttl := sessionTTL()
 		jwt, err := token.GenerateToken(user.ID, user.Email, user.Role, "session", os.Getenv("JWT_SECRET"), ttl)
 		if err != nil {
@@ -113,8 +119,24 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+const pendingMsg = "Your account is waiting for admin approval."
+
 func renderSessionLogin(w http.ResponseWriter, rd, errorMsg string) {
-	renderForm(w, "SIR Labs", "/login", fmt.Sprintf(`<input type="hidden" name="rd" value="%s">`, htmlEscape(rd)), errorMsg)
+	footer := ""
+	if registerAllowed() {
+		footer = authLink("Don't have an account?", "/register?rd="+rd, "Register")
+	}
+	renderAuthForm(w, "Sign in — SIR Labs", "Sign in to SIR Labs", "/login", hiddenRD(rd), "", "Continue", footer, errorMsg)
+}
+
+func hiddenRD(rd string) string {
+	return fmt.Sprintf(`<input type="hidden" name="rd" value="%s">`, htmlEscape(rd))
+}
+
+// authLink renders the "question? link" line under a card; href is escaped.
+func authLink(text, href, label string) string {
+	return fmt.Sprintf(`<p class="mt-6 text-sm text-center text-[#5b616e]">%s <a href="%s" class="font-semibold text-[#0052ff] hover:underline">%s</a></p>`,
+		htmlEscape(text), htmlEscape(href), htmlEscape(label))
 }
 
 // Logout handles GET/POST /logout: clears the session cookie.
@@ -147,7 +169,11 @@ func Home(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
+	admin := ""
+	if claims.Role == "admin" {
+		admin = ` — <a href="/admin">Admin</a>`
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SIR Labs</title></head>
-<body style="font-family:Inter,-apple-system,sans-serif;padding:2rem">Logged in as %s — <a href="/logout">Log out</a></body></html>`, htmlEscape(claims.Email))
+<body style="font-family:Inter,-apple-system,sans-serif;padding:2rem">Logged in as %s%s — <a href="/logout">Log out</a></body></html>`, htmlEscape(claims.Email), admin)
 }

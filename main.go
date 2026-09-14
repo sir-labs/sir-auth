@@ -39,6 +39,10 @@ func main() {
 	// Public: self-registration
 	mux.HandleFunc("/register", handler.Register)
 
+	// Admin UI (sir_session cookie with role=admin): approve self-registered users
+	mux.HandleFunc("/admin", handler.AdminPage)
+	mux.HandleFunc("/admin/", handler.AdminAction)
+
 	// Protected: any authenticated user
 	mux.Handle("/api/me", middleware.Chain(
 		http.HandlerFunc(handler.Me),

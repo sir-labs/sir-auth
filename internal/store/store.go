@@ -77,7 +77,7 @@ func (s *Store) CreateUser(ctx context.Context, u model.User) error {
 func (s *Store) ListUsers(ctx context.Context) ([]model.User, error) {
 	var users []model.User
 	err := s.db.WithContext(ctx).
-		Select("id, email, role, created_at").
+		Select("id, email, role, created_at, approved").
 		Order("created_at DESC").
 		Find(&users).Error
 	return users, err
@@ -91,6 +91,10 @@ func (s *Store) CountUsers(ctx context.Context) (int64, error) {
 
 func (s *Store) UpdateUser(ctx context.Context, u model.User) error {
 	return s.db.WithContext(ctx).Save(&u).Error
+}
+
+func (s *Store) SetUserApproved(ctx context.Context, id string, approved bool) error {
+	return s.db.WithContext(ctx).Model(&model.User{}).Where("id = ?", id).Update("approved", approved).Error
 }
 
 func (s *Store) DeleteUser(ctx context.Context, id string) error {

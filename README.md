@@ -24,7 +24,7 @@ You need the repo secrets `DATABASE_URL`, `JWT_SECRET`, `SETUP_SECRET` and `POST
 | `SETUP_SECRET` | – | guards `POST /setup` |
 | `COOKIE_DOMAIN` | `.sir-labs.com` | session cookie domain; also bounds allowed `rd` redirects |
 | `SESSION_TTL` | `168h` | Go duration (`7d` is invalid) |
-| `ALLOW_REGISTER` | `true` | set `false` to disable `POST /register` |
+| `ALLOW_REGISTER` | `true` | set `false` to disable `GET`/`POST /register` |
 | `PORT` | `8080` | |
 
 ## First-time setup
@@ -45,6 +45,25 @@ curl -X POST "https://auth.sir-labs.com/setup?secret=$SETUP_SECRET" \
   `rd` must be `https://` on the cookie apex or a subdomain of it. Any other `rd` redirects to `/`.
 - `GET|POST /logout` clears the cookie and returns a 302 to `/login`.
 - `GET /session/verify` returns 200 with `X-Auth-User-Id`, `X-Auth-Email` and `X-Auth-Role` for a valid cookie, and 401 with an empty body otherwise. It does not query the database.
-- `GET /` shows the signed-in user, or redirects to `/login`.
+- `GET /` shows the signed-in user (with an `Admin` link for admins), or redirects to `/login`.
 
 Existing APIs are unchanged: the loopback OAuth flow (`/oauth/authorize`, `/oauth/token`, `/oauth/revoke`), `POST /register`, `POST /setup` and `/api/*`.
+
+## Registration and admin approval
+
+A session cookie gets you into every `*.sir-labs.com` site, so new accounts must be approved by an admin first.
+
+- `users.approved` (default `false`) is added at startup. Every startup also runs `UPDATE users SET approved = TRUE WHERE role = 'admin'`,
+  so admins can never be locked out. As a side effect, revoking another admin's approval is undone on the next restart.
+- `GET /register?rd=<url>` shows the sign-up form (email, password, confirm password; password must be at least 8 characters). The form `POST /register`
+  creates an unapproved `user` and shows "Registered — waiting for admin approval". `POST /register` with a JSON body keeps the original
+  JSON API (201 `{id,email,role}`), but that account is also unapproved. Both respect `ALLOW_REGISTER=false`.
+- Unapproved users are refused with "Your account is waiting for admin approval." at `POST /login` (no cookie) and `POST /oauth/authorize` (no code).
+  Their refresh tokens are rejected (`invalid_grant`). Accounts created by `/setup` or by an admin via `POST /api/admin/users` are approved.
+- `GET /admin` is the admin UI. It needs a `sir_session` cookie for an approved admin: with no session it redirects to `/login?rd=https://<host>/admin`,
+  and for a logged-in non-admin it returns 403. It lists pending users (Approve / Reject) and approved users (Revoke approval / Delete).
+  The form posts are `POST /admin/approve|reject|revoke|delete` with field `id`. Reject deletes a pending user.
+  You cannot revoke or delete yourself or the last approved admin. Besides `SameSite=Lax`, these posts need an `Origin` host (or `Referer`
+  host if `Origin` is missing) equal to the request `Host`. Every action is written to `system_logs`.
+- **Revoking or deleting does not end existing sessions.** `/session/verify` checks only the JWT and never the database, so a cookie that has already been issued
+  stays valid until it expires (`SESSION_TTL`, default 7 days). Rotate `JWT_SECRET` to force everyone out immediately.

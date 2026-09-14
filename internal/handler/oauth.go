@@ -104,6 +104,10 @@ func processAuthorize(w http.ResponseWriter, r *http.Request) {
 		renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, "Incorrect email or password. Please try again.")
 		return
 	}
+	if !user.Approved {
+		renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, pendingMsg)
+		return
+	}
 
 	if scope == "" {
 		scope = "openid"
@@ -250,6 +254,10 @@ func exchangeRefreshToken(w http.ResponseWriter, r *http.Request) {
 		middleware.WriteOAuthError(w, "server_error", http.StatusInternalServerError)
 		return
 	}
+	if !user.Approved {
+		middleware.WriteOAuthError(w, "invalid_grant", http.StatusBadRequest)
+		return
+	}
 
 	if err := s.RevokeRefreshToken(r.Context(), rawToken); err != nil {
 		middleware.WriteOAuthError(w, "server_error", http.StatusInternalServerError)
@@ -363,7 +371,12 @@ func renderLoginForm(w http.ResponseWriter, clientName, clientID, redirectURI, s
 
 // renderForm renders the shared sign-in page posting to action with the given hidden inputs.
 func renderForm(w http.ResponseWriter, title, action, hiddenHTML, errorMsg string) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	renderAuthForm(w, "Sign in — "+title, "Sign in to "+title, action, hiddenHTML, "", "Continue", "", errorMsg)
+}
+
+// renderAuthForm renders the email+password card; extraHTML goes after the password field,
+// footerHTML (trusted markup) below the button.
+func renderAuthForm(w http.ResponseWriter, title, heading, action, hiddenHTML, extraHTML, button, footerHTML, errorMsg string) {
 	errorHTML := ""
 	if errorMsg != "" {
 		errorHTML = fmt.Sprintf(`
@@ -372,22 +385,59 @@ func renderForm(w http.ResponseWriter, title, action, hiddenHTML, errorMsg strin
 		  <span>%s</span>
 		</div>`, htmlEscape(errorMsg))
 	}
-
-	fmt.Fprintf(w, loginFormHTML,
-		htmlEscape(title),
-		htmlEscape(title),
-		errorHTML,
-		action,
-		hiddenHTML,
-	)
+	renderPage(w, title, "max-w-[450px]", fmt.Sprintf(loginFormHTML,
+		htmlEscape(heading), errorHTML, action, hiddenHTML, extraHTML, htmlEscape(button), footerHTML))
 }
 
-const loginFormHTML = `<!DOCTYPE html>
+// renderPage writes the shared header/footer shell around a card containing bodyHTML (trusted markup).
+func renderPage(w http.ResponseWriter, title, maxWidth, bodyHTML string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, pageHTML, htmlEscape(title), maxWidth, bodyHTML)
+}
+
+// inputClass is the shared text-input style.
+const inputClass = `w-full h-12 px-4 bg-white border border-[#dee1e6] rounded-[12px] text-[#0a0b0d] placeholder-[#7c828a] focus:border-[#0052ff] focus:ring-2 focus:ring-[#0052ff]/10 outline-none transition-all text-sm font-medium`
+
+const loginFormHTML = `
+      <!-- Headings -->
+      <div class="text-center md:text-left mb-8">
+        <h1 class="text-2xl font-semibold tracking-tight text-[#0a0b0d] mb-2">%s</h1>
+        <p class="text-[#5b616e] text-sm">Use your email address and password to continue.</p>
+      </div>
+
+      <!-- Error Alert -->
+      %s
+
+      <!-- Login Form -->
+      <form method="POST" action="%s" class="w-full flex flex-col gap-6">
+        %s
+
+        <div class="flex flex-col gap-2">
+          <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Email Address</label>
+          <input type="email" name="email" required placeholder="name@example.com" class="` + inputClass + `">
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <div class="flex justify-between items-center">
+            <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Password</label>
+          </div>
+          <input type="password" name="password" required placeholder="Enter password" class="` + inputClass + `">
+        </div>
+        %s
+
+        <button type="submit" class="w-full h-12 bg-[#0052ff] hover:bg-[#003ecc] text-white font-semibold rounded-full transition-all text-sm shadow-sm flex items-center justify-center gap-2 mt-2">
+          %s
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+      </form>
+      %s`
+
+const pageHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Sign in — %s</title>
+  <title>%s</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -416,37 +466,8 @@ const loginFormHTML = `<!DOCTYPE html>
 
   <!-- Main Content -->
   <main class="flex-grow flex items-center justify-center px-6 py-12 bg-[#f7f7f7]">
-    <div class="w-full max-w-[450px] bg-white border border-[#dee1e6] rounded-[24px] p-8 md:p-10 shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
-      <!-- Headings -->
-      <div class="text-center md:text-left mb-8">
-        <h1 class="text-2xl font-semibold tracking-tight text-[#0a0b0d] mb-2">Sign in to %s</h1>
-        <p class="text-[#5b616e] text-sm">Use your email address and password to continue.</p>
-      </div>
-
-      <!-- Error Alert -->
-      %s
-
-      <!-- Login Form -->
-      <form method="POST" action="%s" class="w-full flex flex-col gap-6">
-        %s
-
-        <div class="flex flex-col gap-2">
-          <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Email Address</label>
-          <input type="email" name="email" required placeholder="name@example.com" class="w-full h-12 px-4 bg-white border border-[#dee1e6] rounded-[12px] text-[#0a0b0d] placeholder-[#7c828a] focus:border-[#0052ff] focus:ring-2 focus:ring-[#0052ff]/10 outline-none transition-all text-sm font-medium">
-        </div>
-
-        <div class="flex flex-col gap-2">
-          <div class="flex justify-between items-center">
-            <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Password</label>
-          </div>
-          <input type="password" name="password" required placeholder="Enter password" class="w-full h-12 px-4 bg-white border border-[#dee1e6] rounded-[12px] text-[#0a0b0d] placeholder-[#7c828a] focus:border-[#0052ff] focus:ring-2 focus:ring-[#0052ff]/10 outline-none transition-all text-sm font-medium">
-        </div>
-
-        <button type="submit" class="w-full h-12 bg-[#0052ff] hover:bg-[#003ecc] text-white font-semibold rounded-full transition-all text-sm shadow-sm flex items-center justify-center gap-2 mt-2">
-          Continue
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-        </button>
-      </form>
+    <div class="w-full %s bg-white border border-[#dee1e6] rounded-[24px] p-8 md:p-10 shadow-[0_4px_12px_rgba(0,0,0,0.02)]">
+%s
     </div>
   </main>
 

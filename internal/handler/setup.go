@@ -81,6 +81,7 @@ func Setup(w http.ResponseWriter, r *http.Request) {
 		Salt:         salt,
 		Role:         "admin",
 		CreatedAt:    time.Now().Unix(),
+		Approved:     true,
 	}); err != nil {
 		middleware.WriteError(w, "server_error: "+err.Error(), http.StatusInternalServerError)
 		return
