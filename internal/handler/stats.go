@@ -228,9 +228,9 @@ func adminStatsNote(admin bool, userID string) string {
 		return ""
 	}
 	if userID != "" {
-		return `<a href="/admin/stats" class="text-sm text-[#0052ff] hover:underline">Showing one user · show all</a>`
+		return `<div class="flex items-center gap-3"><a href="/admin/stats" class="text-sm text-[#0052ff] hover:underline">Showing one user · show all</a>` + adminTabs("stats") + `</div>`
 	}
-	return `<a href="/admin" class="text-sm text-[#0052ff] hover:underline">User approval</a>`
+	return adminTabs("stats")
 }
 
 func windowLabel(win statsWindow) string {
@@ -279,7 +279,9 @@ func bucketTable(bs []store.Bucket, head, base string, win statsWindow, filters 
 	for _, b := range bs {
 		label := b.Label
 		if param == "token" {
-			if b.Key == "" {
+			if b.Key == "" && label == "anonymous" {
+				label = "Anonymous (public route)"
+			} else if b.Key == "" {
 				label = "Browser session"
 			} else if label == "" {
 				label = "Token " + b.Key
@@ -306,7 +308,9 @@ func userTable(admin bool, bs []store.Bucket, base string, win statsWindow, filt
 		return ""
 	}
 	for i := range bs {
-		if bs[i].Label == "" {
+		if bs[i].Key == "" {
+			bs[i].Label = "anonymous"
+		} else if bs[i].Label == "" {
 			bs[i].Label = "deleted user " + bs[i].Key
 		}
 	}
@@ -335,7 +339,7 @@ func recentTable(rows []store.LogRow, admin bool, page int, hasNext bool, base s
 		userHead = `<th class="` + thClass + `">User</th>`
 	}
 	for _, r := range rows {
-		cred := "session"
+		cred := r.Cred
 		if r.TokenID != nil {
 			cred = "token: " + r.TokenName
 			if r.TokenName == "" {
@@ -344,7 +348,11 @@ func recentTable(rows []store.LogRow, admin bool, page int, hasNext bool, base s
 		}
 		userCell := ""
 		if admin {
-			userCell = fmt.Sprintf(`<td class="%s break-all">%s</td>`, tdClass, htmlEscape(r.Email))
+			email := r.Email
+			if r.UserID == "" {
+				email = "anonymous"
+			}
+			userCell = fmt.Sprintf(`<td class="%s break-all">%s</td>`, tdClass, htmlEscape(email))
 		}
 		fmt.Fprintf(&b, `<tr><td class="%s whitespace-nowrap">%s</td>%s<td class="%s">%s</td><td class="%s font-mono text-xs">%s</td><td class="%s font-mono text-xs break-all">%s</td><td class="%s">%s</td><td class="%s whitespace-nowrap">%s</td></tr>`,
 			tdClass, timeTag(r.TS.Unix()), userCell, tdClass, htmlEscape(r.Host), tdClass, htmlEscape(r.Method), tdClass, htmlEscape(r.Path), tdClass, htmlEscape(cred), tdClass, htmlEscape(r.IP))

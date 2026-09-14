@@ -169,3 +169,13 @@ type RequestLog struct {
 
 func (APIToken) TableName() string   { return "api_tokens" }
 func (RequestLog) TableName() string { return "request_logs" }
+
+// RoutePolicy says whether a gated host is public (no row = login required).
+type RoutePolicy struct {
+	Host      string `gorm:"column:host;primaryKey"`
+	Public    bool   `gorm:"column:public;not null"`
+	UpdatedAt int64  `gorm:"column:updated_at;not null"`
+	UpdatedBy string `gorm:"column:updated_by;not null"`
+}
+
+func (RoutePolicy) TableName() string { return "route_policies" }

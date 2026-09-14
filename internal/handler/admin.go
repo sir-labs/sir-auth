@@ -280,7 +280,7 @@ func AdminPage(w http.ResponseWriter, r *http.Request) {
 	appPage(w, "Admin — SIR Labs", me, "admin", fmt.Sprintf(`<div class="`+cardClass+`">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-semibold tracking-tight text-[#0a0b0d]">User approval</h1>
-        <a href="/admin/stats" class="text-sm text-[#0052ff] hover:underline">Request stats →</a>
+        `+adminTabs("users")+`
       </div>
       <h2 class="text-xs font-semibold tracking-wide uppercase text-[#5b616e] mt-2">Pending</h2>
       %s

@@ -322,8 +322,8 @@ func (s *Store) CountBy(ctx context.Context, f LogFilter, by string, limit int) 
 		q = q.Select("request_logs.host AS key, request_logs.host AS label, count(*) AS n").Group("request_logs.host")
 	case "token":
 		q = q.Joins("LEFT JOIN api_tokens t ON t.id = request_logs.token_id").
-			Select("COALESCE(request_logs.token_id, '') AS key, COALESCE(t.name, '') AS label, count(*) AS n").
-			Group("request_logs.token_id, t.name")
+			Select("COALESCE(request_logs.token_id, '') AS key, COALESCE(t.name, request_logs.cred) AS label, count(*) AS n").
+			Group("request_logs.token_id, t.name, request_logs.cred")
 	case "user":
 		q = q.Joins("LEFT JOIN users u ON u.id = request_logs.user_id").
 			Select("request_logs.user_id AS key, COALESCE(u.email, '') AS label, count(*) AS n").
@@ -375,4 +375,31 @@ func (s *Store) EachLog(ctx context.Context, f LogFilter, fn func(LogRow) error)
 		}
 	}
 	return rows.Err()
+}
+
+// ── Route policies ───────────────────────────────────────────────────────────
+
+// GetRoutePolicy returns the policy for host, or nil (login required).
+func (s *Store) GetRoutePolicy(ctx context.Context, host string) (*model.RoutePolicy, error) {
+	var p model.RoutePolicy
+	err := s.db.WithContext(ctx).Where("host = ?", host).Take(&p).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &p, err
+}
+
+func (s *Store) ListRoutePolicies(ctx context.Context) ([]model.RoutePolicy, error) {
+	var ps []model.RoutePolicy
+	err := s.db.WithContext(ctx).Order("host").Find(&ps).Error
+	return ps, err
+}
+
+// SetRoutePolicy upserts host's policy.
+func (s *Store) SetRoutePolicy(ctx context.Context, p model.RoutePolicy) error {
+	return s.db.WithContext(ctx).Save(&p).Error
+}
+
+func (s *Store) DeleteRoutePolicy(ctx context.Context, host string) error {
+	return s.db.WithContext(ctx).Where("host = ?", host).Delete(&model.RoutePolicy{}).Error
 }

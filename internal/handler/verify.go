@@ -78,8 +78,17 @@ var (
 		return s.GetAPITokenByHash(ctx, hash)
 	}
 
-	userCache = newTTLCache(30*time.Second, 10000, func(ctx context.Context, id string) (*model.User, error) { return loadUser(ctx, id) })
-	tokCache  = newTTLCache(30*time.Second, 10000, func(ctx context.Context, h string) (*model.APIToken, error) { return loadToken(ctx, h) })
+	loadPolicy = func(ctx context.Context, host string) (*model.RoutePolicy, error) {
+		s, err := store.Open()
+		if err != nil {
+			return nil, err
+		}
+		return s.GetRoutePolicy(ctx, host)
+	}
+
+	policyCache = newTTLCache(30*time.Second, 10000, func(ctx context.Context, h string) (*model.RoutePolicy, error) { return loadPolicy(ctx, h) })
+	userCache   = newTTLCache(30*time.Second, 10000, func(ctx context.Context, id string) (*model.User, error) { return loadUser(ctx, id) })
+	tokCache    = newTTLCache(30*time.Second, 10000, func(ctx context.Context, h string) (*model.APIToken, error) { return loadToken(ctx, h) })
 )
 
 // invalidateAuth drops every cached user and token. Called after any change that
@@ -87,6 +96,14 @@ var (
 func invalidateAuth() {
 	userCache.Clear()
 	tokCache.Clear()
+	policyCache.Clear()
+}
+
+// hostPublic reports whether an admin made host public. Unknown (DB down, nothing
+// cached) means login required: fail closed.
+func hostPublic(ctx context.Context, host string) bool {
+	p, err := policyCache.Get(ctx, strings.ToLower(host))
+	return err == nil && p != nil && p.Public
 }
 
 type identity struct {
@@ -147,22 +164,42 @@ func capLen(s string, n int) string {
 
 // VerifySession handles GET /session/verify for nginx auth_request: 200 with
 // X-Auth-User-Id/Email/Role, or 401 with an empty body. A sirpat_ bearer token is
-// checked instead of the cookie, never in addition to it.
+// checked instead of the cookie, never in addition to it. On a host an admin made
+// public, a request without valid credentials is 200 with no X-Auth-* headers
+// (anonymous), but a bad sirpat token is still 401.
 func VerifySession(w http.ResponseWriter, r *http.Request) {
 	var id *identity
 	cred := "session"
+	host := r.Header.Get("X-Original-Host")
 	if raw, ok := token.ParseBearerPAT(r.Header.Get("Authorization")); ok {
-		id, cred = tokenIdentity(r.Context(), raw), "token"
+		if id = tokenIdentity(r.Context(), raw); id == nil {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		cred = "token"
 	} else {
 		id = cookieIdentity(r)
 	}
 	if id == nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
+		if !hostPublic(r.Context(), host) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		id, cred = &identity{}, "anonymous"
 	}
+	logRequest(r, host, cred, id)
+	if cred != "anonymous" {
+		w.Header().Set("X-Auth-User-Id", id.ID)
+		w.Header().Set("X-Auth-Email", id.Email)
+		w.Header().Set("X-Auth-Role", id.Role)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func logRequest(r *http.Request, host, cred string, id *identity) {
 	store.LogUsage(model.RequestLog{
 		TS:      time.Now(),
-		Host:    capLen(r.Header.Get("X-Original-Host"), 255),
+		Host:    capLen(host, 255),
 		Method:  capLen(r.Header.Get("X-Original-Method"), 16),
 		Path:    requestPath(r.Header.Get("X-Original-URI")),
 		IP:      capLen(r.Header.Get("X-Real-IP"), 64),
@@ -170,8 +207,4 @@ func VerifySession(w http.ResponseWriter, r *http.Request) {
 		TokenID: id.TokenID,
 		UserID:  id.ID,
 	})
-	w.Header().Set("X-Auth-User-Id", id.ID)
-	w.Header().Set("X-Auth-Email", id.Email)
-	w.Header().Set("X-Auth-Role", id.Role)
-	w.WriteHeader(http.StatusOK)
 }

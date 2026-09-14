@@ -78,6 +78,20 @@ A session cookie gets you into every `*.sir-labs.com` site, so new accounts must
   makes their existing cookies work again. Admin delete/reject also deletes the user's request logs.
 - `GET /admin/stats` (+ `/admin/stats.csv`) shows everyone's request stats, a per-user table and the dropped-events counter.
 
+## Per-domain access (`/admin/routes`)
+
+Admins choose, per host, whether a gated route needs login or is public. No nginx or watcher change is involved: the decision is made in `/session/verify`.
+
+- `route_policies (host, public, updated_at, updated_by)`. A host with no row requires login (the default for new routes).
+- On a public host, `/session/verify` still identifies a valid cookie or token (200 + `X-Auth-*`) and still refuses a bad `sirpat_` token (401).
+  A request with no valid credentials gets 200 with no `X-Auth-*` headers (anonymous; nginx forwards them empty) and is logged with `cred='anonymous'`, `user_id=''`.
+- Policies are cached for 30s and cleared in-process on every change, so a flip applies at once. If the DB is down and nothing is cached, the host requires login (fail closed).
+- The page lists every route from `WATCHER_URL` with its container, 30-day request count and a Login required / Public toggle (`POST /admin/routes`, `host`, `action=public|login|delete`; same-origin, admin, written to `system_logs`).
+  Routes labelled `proxy.auth=false` show "Public (container label)" and are locked: remove the label to manage them here. The auth host is shown as always public.
+  Policies for hosts that no longer have a route are shown as stale, with a delete button.
+- The dashboard badge shows the effective state (label or policy).
+- **Caveat:** a host that is public by policy still goes through sir-auth on every request, so it returns 500 while sir-auth is down. A host that is public by label (`proxy.auth=false`) does not depend on sir-auth at all.
+
 ## Account (`/account`)
 
 Every page needs a `sir_session` cookie (else a 302 to `/login?rd=…`). Every POST needs a same-origin `Origin`/`Referer` (else 403) and is checked against the DB.
@@ -113,6 +127,7 @@ curl -H "Authorization: Bearer sirpat_…" https://your-app.sir-labs.com/
 - `/account/usage` (own) and `/admin/stats` (everyone): 24h/7d/30d tiles, requests per day (Asia/Bangkok), per-service and per-credential tables
   (per-user for admins), and recent requests (50 per page, filter by service or token). CSV export at `/account/usage.csv` and `/admin/stats.csv`.
   Pages and CSV always cover one window: `range=24h|7d|30d` (default 7d) or `from=YYYY-MM-DD&to=YYYY-MM-DD` (inclusive, Bangkok days).
+- Anonymous requests on policy-public hosts are logged too and shown as "anonymous" in the admin tables.
 - Limits: only gated routes are counted (public routes never reach sir-auth), and the backend's response status is unknown to `auth_request`.
   `CF-Connecting-IP` can be faked by anyone who reaches the gateway directly, so the IP is informational.
 - **Logs are kept forever.** Nothing purges them. Every request on a gated site, static assets included, adds a row, so the Postgres volume grows with traffic.

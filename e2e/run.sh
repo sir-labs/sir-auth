@@ -249,7 +249,7 @@ check "admin stats forbidden for non-admin" '[ "$CODE" = 403 ]'
 
 # ── pages and unchanged flows ────────────────────────────────────────────────
 hit "$AUTH" / -H "$(ck "$A")"
-check "dashboard renders with watcher unreachable" '[ "$CODE" = 200 ] && body_has "service list is unavailable"'
+check "dashboard lists services from the watcher" '[ "$CODE" = 200 ] && body_has app.e2e.test && [ "$(grep -o ">public</span>" "$T/body" | wc -l)" = 2 ]'
 hit "$AUTH" /account -H "$(ck "$A")"
 check "account page" '[ "$CODE" = 200 ] && body_has "Change password" && body_has "Delete account"'
 hit "$AUTH" /account
@@ -276,6 +276,40 @@ check "/api/me refuses a sirpat token" '[ "$CODE" = 401 ]'
 EVE=$(register eve@e2e.test eve-pass-1)
 post /admin/reject "$A" -d "id=$EVE"
 check "admin reject deletes pending user" '[ "$CODE" = 303 ] && [ "$(sql "SELECT count(*) FROM users WHERE id='"'$EVE'"'")" = 0 ]'
+
+# ── per-domain public/login policy ───────────────────────────────────────────
+hit "$AUTH" /admin/routes -H "$(ck "$A")"
+check "routes page lists watcher routes, label-public locked, auth host fixed" '[ "$CODE" = 200 ] && body_has app.e2e.test && body_has "Public (container label)" && body_has "always public" && body_has "Make public"'
+hit "$AUTH" /admin/routes -H "$(ck "$D3")"
+check "routes page forbidden for non-admin" '[ "$CODE" = 403 ]'
+hit "$AUTH" /admin/routes -H "$(ck "$A")" -d host=app.e2e.test -d action=public
+check "routes POST without Origin → 403" '[ "$CODE" = 403 ]'
+post /admin/routes "$A" -d "host=bad host!" -d action=public
+check "routes POST rejects a bad host" '[ "$CODE" = 303 ] && loc | grep -q err=route-host'
+post /admin/routes "$A" -d host=app.e2e.test -d action=public
+check "make app public → 303 + system log" '[ "$CODE" = 303 ] && loc | grep -q ok=route-public && [ "$(sql "SELECT count(*) FROM system_logs WHERE action='"'ROUTE_PUBLIC'"' AND target_id='"'app.e2e.test'"'")" = 1 ]'
+hit "$APP" /anon-probe
+check "public host: no cookie → 200 at once, no X-Auth-*" '[ "$CODE" = 200 ] && ! body_has "X-Auth-Email"'
+hit "$APP" / -H "$(ck "$A")"
+check "public host: valid cookie still identifies the user" '[ "$CODE" = 200 ] && body_has "X-Auth-Email: admin@e2e.test"'
+hit "$APP" / -H "Authorization: Bearer sirpat_garbage"
+check "public host: invalid sirpat still 401 JSON" '[ "$CODE" = 401 ] && body_has invalid_token'
+hit "$AUTH" / -H "$(ck "$A")"
+check "dashboard badge shows policy-public app as public" '[ "$(grep -o ">public</span>" "$T/body" | wc -l)" = 3 ]'
+sleep 2.5
+check "anonymous request logged (cred=anonymous, user_id='')" '[ "$(sql "SELECT count(*) FROM request_logs WHERE path='"'/anon-probe'"' AND cred='"'anonymous'"' AND user_id='"''"' AND host='"'$APP'"'")" = 1 ]'
+hit "$AUTH" "/admin/stats?range=24h" -H "$(ck "$A")"
+check "admin stats show anonymous" '[ "$CODE" = 200 ] && body_has "Anonymous (public route)" && body_has ">anonymous<"'
+hit "$AUTH" /admin/routes -H "$(ck "$A")"
+check "routes page: 30-day count and Require login button" '[ "$CODE" = 200 ] && body_has "Require login"'
+post /admin/routes "$A" -d host=app.e2e.test -d action=login
+hit "$APP" /
+check "flip back to login required → 302 at once" '[ "$CODE" = 302 ]'
+post /admin/routes "$A" -d host=gone.e2e.test -d action=public
+hit "$AUTH" /admin/routes -H "$(ck "$A")"
+check "policy without a route is shown as stale" 'body_has gone.e2e.test && body_has stale'
+post /admin/routes "$A" -d host=gone.e2e.test -d action=delete
+check "delete stale policy" '[ "$CODE" = 303 ] && [ "$(sql "SELECT count(*) FROM route_policies WHERE host='"'gone.e2e.test'"'")" = 0 ]'
 
 # ── report ───────────────────────────────────────────────────────────────────
 echo

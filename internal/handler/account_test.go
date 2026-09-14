@@ -90,8 +90,18 @@ func stubAuth(t *testing.T, users map[string]*model.User, tokens map[string]*mod
 		}
 		return tokens[h], nil
 	}
+	oldP := loadPolicy
+	loadPolicy = func(_ context.Context, h string) (*model.RoutePolicy, error) {
+		if dbErr {
+			return nil, errors.New("db down")
+		}
+		return map[string]*model.RoutePolicy{
+			"open.test":   {Host: "open.test", Public: true},
+			"closed.test": {Host: "closed.test", Public: false},
+		}[h], nil
+	}
 	invalidateAuth()
-	t.Cleanup(func() { loadUser, loadToken = oldU, oldT; invalidateAuth() })
+	t.Cleanup(func() { loadUser, loadToken, loadPolicy = oldU, oldT, oldP; invalidateAuth() })
 }
 
 func TestVerifyMatrix(t *testing.T) {
@@ -306,5 +316,61 @@ func TestParseWindow(t *testing.T) {
 	}
 	if w := parseWindow(map[string][]string{"from": {"2025-09-05"}, "to": {"2025-09-01"}}, now); w.Preset != "7d" {
 		t.Errorf("reversed range should fall back to 7d: %+v", w)
+	}
+}
+
+func TestVerifyPublicHost(t *testing.T) {
+	t.Setenv("JWT_SECRET", "s")
+	users := map[string]*model.User{"u1": {ID: "u1", Email: "a@b.c", Role: "user", Approved: true}}
+	raw := "sirpat_good"
+	tokens := map[string]*model.APIToken{token.HashPAT(raw): {ID: "t1", UserID: "u1", TokenHash: token.HashPAT(raw)}}
+	cookie, _ := token.GenerateToken("u1", "a@b.c", "user", "session", "s", time.Hour)
+	cases := []struct {
+		name, host, cookie, auth string
+		dbErr                    bool
+		want                     int
+		wantID                   string
+	}{
+		{"public: anonymous 200, no headers", "open.test", "", "", false, 200, ""},
+		{"public: host matched case-insensitively", "OPEN.test", "", "", false, 200, ""},
+		{"public: valid cookie identifies user", "open.test", cookie, "", false, 200, "u1"},
+		{"public: valid token identifies user", "open.test", "", "Bearer " + raw, false, 200, "u1"},
+		{"public: invalid token still 401", "open.test", "", "Bearer sirpat_bad", false, 401, ""},
+		{"public: bad cookie is anonymous", "open.test", "garbage", "", false, 200, ""},
+		{"policy public=false: login required", "closed.test", "", "", false, 401, ""},
+		{"no policy row: login required", "other.test", "", "", false, 401, ""},
+		{"db down: fail closed", "open.test", "", "", true, 401, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stubAuth(t, users, tokens, c.dbErr)
+			req := httptest.NewRequest("GET", "/session/verify", nil)
+			req.Header.Set("X-Original-Host", c.host)
+			if c.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: sessionCookie, Value: c.cookie})
+			}
+			if c.auth != "" {
+				req.Header.Set("Authorization", c.auth)
+			}
+			rec := httptest.NewRecorder()
+			VerifySession(rec, req)
+			if rec.Code != c.want || rec.Body.Len() != 0 {
+				t.Fatalf("got %d %q, want %d", rec.Code, rec.Body.String(), c.want)
+			}
+			if got := rec.Header().Get("X-Auth-User-Id"); got != c.wantID {
+				t.Fatalf("X-Auth-User-Id = %q, want %q", got, c.wantID)
+			}
+			if c.wantID == "" && (rec.Header().Get("X-Auth-Email") != "" || rec.Header().Get("X-Auth-Role") != "") {
+				t.Fatal("anonymous must get no X-Auth-* headers")
+			}
+		})
+	}
+}
+
+func TestValidHost(t *testing.T) {
+	for h, want := range map[string]bool{"app.sir-labs.com": true, "a-b.c": true, "": false, "Bad.com": false, "a b": false, "x/y": false, strings.Repeat("a", 254): false} {
+		if validHost(h) != want {
+			t.Errorf("validHost(%q) != %v", h, want)
+		}
 	}
 }

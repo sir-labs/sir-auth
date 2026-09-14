@@ -29,6 +29,9 @@ var flashOK = map[string]string{
 	"password":      "Password changed. Your other sessions were signed out.",
 	"token-renamed": "Token renamed.",
 	"token-revoked": "Token revoked. Requests using it are refused from now on.",
+	"route-public":  "Route is now public.",
+	"route-login":   "Route now requires login.",
+	"route-delete":  "Route policy deleted.",
 }
 
 var flashErr = map[string]string{
@@ -42,6 +45,7 @@ var flashErr = map[string]string{
 	"token-expiry":  "Choose a valid token lifetime.",
 	"token-missing": "Token not found (or already revoked).",
 	"server":        "Something went wrong. Please try again.",
+	"route-host":    "That host cannot be managed here.",
 }
 
 func flashHTML(r *http.Request) string {
@@ -233,6 +237,7 @@ func Home(w http.ResponseWriter, r *http.Request) {
 		cards.WriteString(`<p class="text-sm text-[#5b616e]">No services are registered.</p>`)
 	default:
 		sort.Slice(routes, func(i, j int) bool { return routes[i].Hostname < routes[j].Hostname })
+		public := policyMap(r, s)
 		cards.WriteString(`<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">`)
 		for _, rt := range routes {
 			link := rt.URL
@@ -241,7 +246,7 @@ func Home(w http.ResponseWriter, r *http.Request) {
 			}
 			link = "https://" + strings.TrimPrefix(strings.TrimPrefix(link, "http://"), "https://")
 			badge := `<span class="` + badgeGreen + `">public</span>`
-			if rt.Auth {
+			if rt.Auth && !public[strings.ToLower(rt.Hostname)] { // effective: label or policy
 				badge = `<span class="` + badgeBlue + `">sign-in</span>`
 			}
 			fmt.Fprintf(&cards, `<a href="%s" class="block p-4 rounded-[16px] border border-[#dee1e6] hover:border-[#0052ff] transition-all">

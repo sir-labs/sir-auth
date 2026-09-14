@@ -91,3 +91,13 @@ CREATE TABLE IF NOT EXISTS request_logs (
 CREATE INDEX IF NOT EXISTS idx_request_logs_user_ts ON request_logs(user_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_request_logs_token_ts ON request_logs(token_id, ts DESC);
 CREATE INDEX IF NOT EXISTS idx_request_logs_ts ON request_logs(ts);
+
+-- Per-host access policy for gated routes. No row = login required. public = TRUE lets
+-- /session/verify answer 200 without credentials (anonymous). Hosts whose container
+-- label is proxy.auth=false never reach sir-auth and are public regardless.
+CREATE TABLE IF NOT EXISTS route_policies (
+  host       TEXT PRIMARY KEY,
+  public     BOOLEAN NOT NULL,
+  updated_at BIGINT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT ''
+);

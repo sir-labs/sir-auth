@@ -64,6 +64,7 @@ func main() {
 	// Admin UI (sir_session cookie with role=admin): approve users, stats
 	mux.HandleFunc("/admin", handler.AdminPage)
 	mux.HandleFunc("/admin/", handler.AdminAction)
+	mux.HandleFunc("/admin/routes", handler.AdminRoutes)
 	mux.HandleFunc("/admin/stats", handler.AdminStats)
 	mux.HandleFunc("/admin/stats.csv", handler.AdminStatsCSV)
 

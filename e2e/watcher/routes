@@ -1,0 +1,3 @@
+[{"name":"app","hostname":"app.e2e.test","url":"http://app.e2e.test","ip":"","port":"80","registered_at":"","auth":true},
+ {"name":"pub","hostname":"pub.e2e.test","url":"http://pub.e2e.test","ip":"","port":"80","registered_at":"","auth":false},
+ {"name":"sir-auth","hostname":"auth.e2e.test","url":"http://auth.e2e.test","ip":"","port":"8080","registered_at":"","auth":false}]

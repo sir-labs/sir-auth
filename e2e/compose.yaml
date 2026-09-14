@@ -22,7 +22,7 @@ services:
       JWT_SECRET: e2e-jwt-secret
       SETUP_SECRET: e2e-setup-secret
       COOKIE_DOMAIN: .e2e.test
-      WATCHER_URL: http://127.0.0.1:1/routes # unreachable on purpose: dashboard must still render
+      WATCHER_URL: http://watcher/routes # static stand-in for sir-watcher's /routes
     depends_on:
       db:
         condition: service_healthy
@@ -34,6 +34,11 @@ services:
 
   whoami:
     image: traefik/whoami
+
+  watcher:
+    image: nginx:alpine
+    volumes:
+      - ./watcher:/usr/share/nginx/html:ro
 
   nginx:
     image: nginx:alpine
