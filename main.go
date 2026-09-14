@@ -2,20 +2,31 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
-
-	"github.com/syumai/workers"
+	"os"
 
 	"github.com/sir-labs/sir-auth/internal/handler"
 	"github.com/sir-labs/sir-auth/internal/middleware"
+	"github.com/sir-labs/sir-auth/internal/store"
 )
 
 func main() {
+	// Connect + migrate at boot so a bad DATABASE_URL fails fast.
+	if _, err := store.Open(); err != nil {
+		log.Fatalf("database: %v", err)
+	}
+
 	mux := http.NewServeMux()
 
 	// Public
-	mux.HandleFunc("/", handleRoot)
+	mux.HandleFunc("/", handler.Home)
 	mux.HandleFunc("/health", handleHealth)
+
+	// Browser session for *.sir-labs.com (nginx auth_request)
+	mux.HandleFunc("/login", handler.Login)
+	mux.HandleFunc("/logout", handler.Logout)
+	mux.HandleFunc("/session/verify", handler.VerifySession)
 
 	// OAuth 2.0 Authorization Code Flow (RFC 8252)
 	mux.HandleFunc("/oauth/authorize", handler.Authorize)
@@ -55,15 +66,12 @@ func main() {
 		middleware.AuthMiddleware,
 	))
 
-	workers.Serve(middleware.CORSMiddleware(mux))
-}
-
-func handleRoot(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"name":    "sir-auth",
-		"version": "1.0.0",
-	})
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("sir-auth listening on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, middleware.CORSMiddleware(mux)))
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {

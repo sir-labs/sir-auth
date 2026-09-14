@@ -113,8 +113,8 @@ func TestHashAndVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash: %v", err)
 	}
-	if hash == "" || salt == "" {
-		t.Fatal("hash or salt is empty")
+	if hash == "" || salt != "" {
+		t.Fatal("want non-empty bcrypt hash and empty salt")
 	}
 	if !token.VerifyPassword("my-password", hash, salt) {
 		t.Error("correct password did not verify")
@@ -131,12 +131,9 @@ func TestWrongPassword(t *testing.T) {
 func TestHashesAreDifferentForSamePassword(t *testing.T) {
 	hash1, salt1, _ := token.HashPassword("same")
 	hash2, salt2, _ := token.HashPassword("same")
-	// Different salts must produce different hashes.
-	if salt1 == salt2 {
-		t.Error("salts should be unique per call")
-	}
+	// bcrypt embeds a random salt, so hashes differ.
 	if hash1 == hash2 {
-		t.Error("hashes should differ due to different salts")
+		t.Error("hashes should differ due to embedded salts")
 	}
 	// But both must verify correctly.
 	if !token.VerifyPassword("same", hash1, salt1) {
@@ -160,11 +157,18 @@ func TestEmptyPassword(t *testing.T) {
 	}
 }
 
-func TestWrongSalt(t *testing.T) {
-	hash, _, _ := token.HashPassword("password")
-	_, wrongSalt, _ := token.HashPassword("other")
-	if token.VerifyPassword("password", hash, wrongSalt) {
-		t.Error("wrong salt should not verify")
+func TestSessionTTL(t *testing.T) {
+	raw, _ := token.GenerateToken("u", "e@e.com", "user", "session", testSecret, 7*24*time.Hour)
+	claims, err := token.ValidateAccessToken(raw, testSecret)
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if claims.Exp < time.Now().Add(6*24*time.Hour).Unix() {
+		t.Error("session token should live ~7 days")
+	}
+	expired, _ := token.GenerateToken("u", "e@e.com", "user", "session", testSecret, -time.Minute)
+	if _, err := token.ValidateAccessToken(expired, testSecret); err == nil {
+		t.Error("expired token should not validate")
 	}
 }
 

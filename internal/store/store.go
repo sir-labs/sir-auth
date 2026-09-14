@@ -2,14 +2,15 @@ package store
 
 import (
 	"context"
-	"database/sql"
+	_ "embed"
 	"errors"
+	"os"
+	"sync"
 	"time"
 
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
-
-	"github.com/syumai/workers/cloudflare/d1"
 
 	"github.com/sir-labs/sir-auth/internal/model"
 )
@@ -19,35 +20,35 @@ type Store struct {
 	db *gorm.DB
 }
 
-// Open creates a new Store backed by the "DB" D1 binding.
+//go:embed schema.sql
+var schema string
+
+var (
+	once    sync.Once
+	shared  *Store
+	openErr error
+)
+
+// Open returns the shared Store backed by the PostgreSQL pool at DATABASE_URL.
+// The first call connects and migrates the schema.
 func Open() (*Store, error) {
-	connector, err := d1.OpenConnector("DB")
-	if err != nil {
-		return nil, err
-	}
-	sqlDB := sql.OpenDB(connector)
-	gormDB, err := gorm.Open(newDialector(sqlDB), &gorm.Config{
-		Logger:                 defaultLogger(),
-		SkipDefaultTransaction: true,
+	once.Do(func() {
+		var gormDB *gorm.DB
+		gormDB, openErr = gorm.Open(postgres.Open(os.Getenv("DATABASE_URL")), &gorm.Config{
+			Logger:                 gormlogger.Default.LogMode(gormlogger.Silent),
+			SkipDefaultTransaction: true,
+		})
+		if openErr != nil {
+			return
+		}
+		openErr = gormDB.Exec(schema).Error
+		shared = &Store{db: gormDB}
 	})
-	if err != nil {
-		sqlDB.Close()
-		return nil, err
-	}
-	return &Store{db: gormDB}, nil
+	return shared, openErr
 }
 
-func defaultLogger() gormlogger.Interface {
-	return gormlogger.Default.LogMode(gormlogger.Silent)
-}
-
-func (s *Store) Close() error {
-	sqlDB, err := s.db.DB()
-	if err != nil {
-		return err
-	}
-	return sqlDB.Close()
-}
+// Close is a no-op: the pool is shared for the process lifetime.
+func (s *Store) Close() error { return nil }
 
 // ── Users ────────────────────────────────────────────────────────────────────
 

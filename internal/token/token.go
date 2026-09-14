@@ -4,12 +4,13 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -28,13 +29,18 @@ type Claims struct {
 }
 
 func GenerateAccessToken(userID, email, role, scope, secret string) (string, error) {
+	return GenerateToken(userID, email, role, scope, secret, AccessTokenTTL)
+}
+
+// GenerateToken is GenerateAccessToken with an explicit lifetime (used for browser sessions).
+func GenerateToken(userID, email, role, scope, secret string, ttl time.Duration) (string, error) {
 	header, _ := json.Marshal(map[string]string{"alg": "HS256", "typ": "JWT"})
 	payload, err := json.Marshal(Claims{
 		Sub:   userID,
 		Email: email,
 		Role:  role,
 		Scope: scope,
-		Exp:   time.Now().Add(AccessTokenTTL).Unix(),
+		Exp:   time.Now().Add(ttl).Unix(),
 		Iat:   time.Now().Unix(),
 	})
 	if err != nil {
@@ -75,21 +81,15 @@ func RandomString(n int) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
+// HashPassword returns a bcrypt hash. salt is always empty (bcrypt embeds its own);
+// it is kept only so the users.salt column and call sites stay unchanged.
 func HashPassword(password string) (hash, salt string, err error) {
-	saltBytes := make([]byte, 32)
-	if _, err = rand.Read(saltBytes); err != nil {
-		return
-	}
-	salt = base64.RawURLEncoding.EncodeToString(saltBytes)
-	h := sha256.Sum256([]byte(salt + password))
-	hash = base64.RawURLEncoding.EncodeToString(h[:])
-	return
+	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(h), "", err
 }
 
-func VerifyPassword(password, hash, salt string) bool {
-	h := sha256.Sum256([]byte(salt + password))
-	expected := base64.RawURLEncoding.EncodeToString(h[:])
-	return subtle.ConstantTimeCompare([]byte(expected), []byte(hash)) == 1
+func VerifyPassword(password, hash, _ string) bool {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 func signHS256(data, secret string) string {

@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
-
-	"github.com/syumai/workers/cloudflare"
 
 	"github.com/sir-labs/sir-auth/internal/token"
 )
@@ -24,7 +23,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
-		claims, err := token.ValidateAccessToken(rawToken, cloudflare.Getenv("JWT_SECRET"))
+		claims, err := token.ValidateAccessToken(rawToken, os.Getenv("JWT_SECRET"))
 		if err != nil {
 			WriteError(w, "invalid token: "+err.Error(), http.StatusUnauthorized)
 			return

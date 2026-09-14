@@ -3,9 +3,8 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"time"
-
-	"github.com/syumai/workers/cloudflare"
 
 	"github.com/sir-labs/sir-auth/internal/middleware"
 	"github.com/sir-labs/sir-auth/internal/model"
@@ -22,7 +21,7 @@ func Setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setupSecret := cloudflare.Getenv("SETUP_SECRET")
+	setupSecret := os.Getenv("SETUP_SECRET")
 	if setupSecret == "" || r.URL.Query().Get("secret") != setupSecret {
 		middleware.WriteError(w, "forbidden", http.StatusForbidden)
 		return

@@ -1,0 +1,70 @@
+name: Deploy (self-hosted)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, sir-labs]
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: docker version
+
+      - name: Ensure sir-net exists
+        run: docker network inspect sir-server_sir-net >/dev/null 2>&1 || docker network create sir-server_sir-net
+
+      - name: Write .env
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          SETUP_SECRET: ${{ secrets.SETUP_SECRET }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          umask 077
+          {
+            echo "DATABASE_URL=$DATABASE_URL"
+            echo "JWT_SECRET=$JWT_SECRET"
+            echo "SETUP_SECRET=$SETUP_SECRET"
+            echo "POSTGRES_PASSWORD=$POSTGRES_PASSWORD"
+            echo "ADMIN_EMAIL=$ADMIN_EMAIL"
+            echo "ADMIN_PASSWORD=$ADMIN_PASSWORD"
+            echo "COOKIE_DOMAIN=.sir-labs.com"
+          } > .env
+
+      - run: docker compose -f compose.yaml -f compose.sir.yaml up --build -d --remove-orphans
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' sir-auth)" = healthy ] && exit 0
+            sleep 5
+          done
+          docker logs --tail 50 sir-auth
+          exit 1
+
+      # Idempotent: 201 on first run, 409 already_initialized afterwards.
+      # Runs curl inside sir-auth's network namespace, so no host port is needed.
+      - name: Seed admin (/setup)
+        env:
+          SETUP_SECRET: ${{ secrets.SETUP_SECRET }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          CLIENT_SECRET=$(openssl rand -hex 32)
+          code=$(docker run --rm --network container:sir-auth \
+            -e SETUP_SECRET -e ADMIN_EMAIL -e ADMIN_PASSWORD -e CLIENT_SECRET \
+            --entrypoint sh curlimages/curl -c '
+              printf "{\"admin_email\":\"%s\",\"admin_password\":\"%s\",\"client_id\":\"sir-cli\",\"client_secret\":\"%s\",\"client_name\":\"SIR CLI\"}" \
+                "$ADMIN_EMAIL" "$ADMIN_PASSWORD" "$CLIENT_SECRET" |
+              curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
+                --data-binary @- "http://127.0.0.1:8080/setup?secret=$SETUP_SECRET"')
+          echo "setup status: $code"
+          [ "$code" = 201 ] || [ "$code" = 409 ]
+
+      - if: always()
+        run: docker image prune -f

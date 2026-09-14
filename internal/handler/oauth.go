@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
-
-	"github.com/syumai/workers/cloudflare"
 
 	"github.com/sir-labs/sir-auth/internal/middleware"
 	"github.com/sir-labs/sir-auth/internal/model"
@@ -191,7 +190,7 @@ func exchangeAuthCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := token.GenerateAccessToken(user.ID, user.Email, user.Role, ac.Scope, cloudflare.Getenv("JWT_SECRET"))
+	accessToken, err := token.GenerateAccessToken(user.ID, user.Email, user.Role, ac.Scope, os.Getenv("JWT_SECRET"))
 	if err != nil {
 		middleware.WriteOAuthError(w, "server_error", http.StatusInternalServerError)
 		return
@@ -257,7 +256,7 @@ func exchangeRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accessToken, err := token.GenerateAccessToken(user.ID, user.Email, user.Role, rt.Scope, cloudflare.Getenv("JWT_SECRET"))
+	accessToken, err := token.GenerateAccessToken(user.ID, user.Email, user.Role, rt.Scope, os.Getenv("JWT_SECRET"))
 	if err != nil {
 		middleware.WriteOAuthError(w, "server_error", http.StatusInternalServerError)
 		return
@@ -354,6 +353,16 @@ func htmlEscape(s string) string {
 }
 
 func renderLoginForm(w http.ResponseWriter, clientName, clientID, redirectURI, state, scope, errorMsg string) {
+	hidden := fmt.Sprintf(`<input type="hidden" name="client_id" value="%s">
+        <input type="hidden" name="redirect_uri" value="%s">
+        <input type="hidden" name="state" value="%s">
+        <input type="hidden" name="scope" value="%s">`,
+		htmlEscape(clientID), htmlEscape(redirectURI), htmlEscape(state), htmlEscape(scope))
+	renderForm(w, clientName, "/oauth/authorize", hidden, errorMsg)
+}
+
+// renderForm renders the shared sign-in page posting to action with the given hidden inputs.
+func renderForm(w http.ResponseWriter, title, action, hiddenHTML, errorMsg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	errorHTML := ""
 	if errorMsg != "" {
@@ -365,13 +374,11 @@ func renderLoginForm(w http.ResponseWriter, clientName, clientID, redirectURI, s
 	}
 
 	fmt.Fprintf(w, loginFormHTML,
-		htmlEscape(clientName),
-		htmlEscape(clientName),
+		htmlEscape(title),
+		htmlEscape(title),
 		errorHTML,
-		htmlEscape(clientID),
-		htmlEscape(redirectURI),
-		htmlEscape(state),
-		htmlEscape(scope),
+		action,
+		hiddenHTML,
 	)
 }
 
@@ -420,11 +427,8 @@ const loginFormHTML = `<!DOCTYPE html>
       %s
 
       <!-- Login Form -->
-      <form method="POST" action="/oauth/authorize" class="w-full flex flex-col gap-6">
-        <input type="hidden" name="client_id" value="%s">
-        <input type="hidden" name="redirect_uri" value="%s">
-        <input type="hidden" name="state" value="%s">
-        <input type="hidden" name="scope" value="%s">
+      <form method="POST" action="%s" class="w-full flex flex-col gap-6">
+        %s
 
         <div class="flex flex-col gap-2">
           <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Email Address</label>

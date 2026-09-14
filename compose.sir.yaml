@@ -1,0 +1,15 @@
+services:
+  sir-auth:
+    networks:
+      - default
+      - sir-net
+    labels:
+      proxy.enable: "true"
+      proxy.host: auth.sir-labs.com
+      proxy.port: "8080"
+      proxy.auth: "false"
+
+networks:
+  sir-net:
+    name: sir-server_sir-net
+    external: true

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -16,6 +17,10 @@ import (
 func Register(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if os.Getenv("ALLOW_REGISTER") == "false" {
+		middleware.WriteError(w, "registration disabled", http.StatusForbidden)
 		return
 	}
 
