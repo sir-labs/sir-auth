@@ -55,14 +55,13 @@ jobs:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
-          CLIENT_SECRET=$(openssl rand -hex 32)
-          code=$(docker run --rm --network container:sir-auth \
-            -e SETUP_SECRET -e ADMIN_EMAIL -e ADMIN_PASSWORD -e CLIENT_SECRET \
-            --entrypoint sh curlimages/curl -c '
-              printf "{\"admin_email\":\"%s\",\"admin_password\":\"%s\",\"client_id\":\"sir-cli\",\"client_secret\":\"%s\",\"client_name\":\"SIR CLI\"}" \
-                "$ADMIN_EMAIL" "$ADMIN_PASSWORD" "$CLIENT_SECRET" |
-              curl -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
-                --data-binary @- "http://127.0.0.1:8080/setup?secret=$SETUP_SECRET"')
+          # Build JSON with jq on the runner (safe quoting), pipe it into curl
+          # running inside sir-auth's network namespace — no host port needed.
+          code=$(jq -nc --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" --arg s "$(openssl rand -hex 32)" \
+              '{admin_email:$e, admin_password:$p, client_id:"sir-cli", client_secret:$s, client_name:"SIR CLI"}' |
+            docker run --rm -i --network container:sir-auth curlimages/curl \
+              -s -o /dev/null -w "%{http_code}" -X POST -H "Content-Type: application/json" \
+              --data-binary @- "http://127.0.0.1:8080/setup?secret=$SETUP_SECRET")
           echo "setup status: $code"
           [ "$code" = 201 ] || [ "$code" = 409 ]
 
