@@ -53,3 +53,41 @@ CREATE TABLE IF NOT EXISTS system_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs(created_at);
+
+-- Cookies issued before this unix time are rejected by /session/verify
+-- (log out everywhere, password change).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS sessions_valid_after BIGINT NOT NULL DEFAULT 0;
+
+-- Personal access tokens (sirpat_…). Only the sha256 is stored; revoke keeps the row
+-- so request_logs still join to it.
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  token_hash   TEXT NOT NULL UNIQUE,
+  prefix       TEXT NOT NULL,
+  created_at   BIGINT NOT NULL,
+  expires_at   BIGINT,
+  revoked_at   BIGINT,
+  last_used_at BIGINT,
+  last_used_ip TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_api_tokens_user_id ON api_tokens(user_id);
+
+-- One row per request on a gated route (written by /session/verify). Kept forever.
+-- ponytail: single unpartitioned table; switch to monthly partitions or archive old
+-- rows once it passes ~50M rows or the windowed stats queries get slow.
+CREATE TABLE IF NOT EXISTS request_logs (
+  id       BIGSERIAL PRIMARY KEY,
+  ts       TIMESTAMPTZ NOT NULL,
+  host     TEXT NOT NULL,
+  method   TEXT NOT NULL,
+  path     TEXT NOT NULL,
+  ip       TEXT NOT NULL,
+  cred     TEXT NOT NULL,
+  token_id TEXT,
+  user_id  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_request_logs_user_ts ON request_logs(user_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_request_logs_token_ts ON request_logs(token_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_request_logs_ts ON request_logs(ts);

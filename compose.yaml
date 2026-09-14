@@ -10,6 +10,7 @@ services:
       COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.sir-labs.com}
       SESSION_TTL: ${SESSION_TTL:-168h}
       ALLOW_REGISTER: ${ALLOW_REGISTER:-true}
+      WATCHER_URL: ${WATCHER_URL:-http://sir-watcher:8080/routes}
     depends_on:
       sir-auth-db:
         condition: service_healthy

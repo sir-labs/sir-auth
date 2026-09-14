@@ -5,10 +5,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -100,4 +102,41 @@ func signHS256(data, secret string) string {
 
 func b64(data []byte) string {
 	return base64.RawURLEncoding.EncodeToString(data)
+}
+
+// PATPrefix marks a personal access token.
+const PATPrefix = "sirpat_"
+
+// NewPAT returns a new personal access token, its sha256 hex and a 12-char display prefix.
+func NewPAT() (raw, hash, prefix string, err error) {
+	r, err := RandomString(32)
+	if err != nil {
+		return "", "", "", err
+	}
+	raw = PATPrefix + r
+	return raw, HashPAT(raw), raw[:12], nil
+}
+
+// HashPAT returns the sha256 hex of a raw token (what the DB stores).
+func HashPAT(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// ParseBearerPAT returns the sirpat_ credential from an Authorization header value.
+// "Bearer" and the sirpat_ prefix are matched case-insensitively and any whitespace
+// separates them, so everything nginx might classify as a sirpat token is treated as
+// one here (and fails closed if it is wrong). ok is false for anything else: no
+// header, another scheme, or a non-sirpat bearer such as an OAuth access token.
+func ParseBearerPAT(header string) (raw string, ok bool) {
+	h := strings.TrimSpace(header)
+	i := strings.IndexFunc(h, unicode.IsSpace)
+	if i < 0 || !strings.EqualFold(h[:i], "Bearer") {
+		return "", false
+	}
+	cred := strings.TrimSpace(h[i:])
+	if len(cred) < len(PATPrefix) || !strings.EqualFold(cred[:len(PATPrefix)], PATPrefix) {
+		return "", false
+	}
+	return cred, true
 }

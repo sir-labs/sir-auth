@@ -148,11 +148,19 @@ func validateRegistration(email, password, confirm string) string {
 	if a, err := mail.ParseAddress(email); err != nil || a.Address != email {
 		return "Please enter a valid email address."
 	}
+	if code := validatePassword(password, confirm); code != "" {
+		return flashErr[code]
+	}
+	return ""
+}
+
+// validatePassword returns a flashErr code ("pw-short", "pw-mismatch") or "".
+func validatePassword(password, confirm string) string {
 	if len(password) < 8 {
-		return "Password must be at least 8 characters."
+		return "pw-short"
 	}
 	if password != confirm {
-		return "Passwords do not match."
+		return "pw-mismatch"
 	}
 	return ""
 }

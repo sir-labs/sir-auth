@@ -199,3 +199,58 @@ func TestRandomStringUniqueness(t *testing.T) {
 		seen[s] = true
 	}
 }
+
+// ── Personal access tokens ────────────────────────────────────────────────────
+
+func TestNewPAT(t *testing.T) {
+	raw, hash, prefix, err := token.NewPAT()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(raw, "sirpat_") || len(raw) != len("sirpat_")+43 {
+		t.Errorf("raw = %q", raw)
+	}
+	if hash != token.HashPAT(raw) || len(hash) != 64 {
+		t.Errorf("hash = %q", hash)
+	}
+	if prefix != raw[:12] {
+		t.Errorf("prefix = %q", prefix)
+	}
+	raw2, _, _, _ := token.NewPAT()
+	if raw2 == raw {
+		t.Error("two tokens are equal")
+	}
+}
+
+func TestHashPAT(t *testing.T) {
+	// sha256("abc") test vector
+	if got := token.HashPAT("abc"); got != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" {
+		t.Errorf("HashPAT(abc) = %s", got)
+	}
+}
+
+func TestParseBearerPAT(t *testing.T) {
+	cases := []struct {
+		in, want string
+		ok       bool
+	}{
+		{"Bearer sirpat_abc", "sirpat_abc", true},
+		{"bearer sirpat_abc", "sirpat_abc", true},
+		{"BEARER   sirpat_abc  ", "sirpat_abc", true},
+		{"Bearer\tsirpat_abc", "sirpat_abc", true},
+		{"Bearer SIRPAT_abc", "SIRPAT_abc", true},
+		{"Bearer sirpat_abc extra", "sirpat_abc extra", true},
+		{"Bearer eyJhbGciOi.x.y", "", false},
+		{"Basic sirpat_abc", "", false},
+		{"sirpat_abc", "", false},
+		{"Bearer", "", false},
+		{"Bearer sirpat", "", false},
+		{"", "", false},
+	}
+	for _, c := range cases {
+		got, ok := token.ParseBearerPAT(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("ParseBearerPAT(%q) = %q, %v; want %q, %v", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}

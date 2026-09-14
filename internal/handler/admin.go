@@ -77,6 +77,7 @@ func AdminUserDetail(w http.ResponseWriter, r *http.Request) {
 			middleware.WriteError(w, "server_error", http.StatusInternalServerError)
 			return
 		}
+		invalidateAuth()
 
 		s.CreateSystemLog(r.Context(), model.SystemLog{
 			Action:   "UPDATE_USER",
@@ -94,10 +95,11 @@ func AdminUserDetail(w http.ResponseWriter, r *http.Request) {
 		})
 
 	case http.MethodDelete:
-		if err := s.DeleteUser(r.Context(), u.ID); err != nil {
+		if err := s.DeleteUserData(r.Context(), u.ID); err != nil {
 			middleware.WriteError(w, "server_error", http.StatusInternalServerError)
 			return
 		}
+		invalidateAuth()
 
 		s.CreateSystemLog(r.Context(), model.SystemLog{
 			Action:   "DELETE_USER",
@@ -182,15 +184,13 @@ func AdminLogs(w http.ResponseWriter, r *http.Request) {
 // ── Admin UI (browser session) ──────────────────────────────────────────────
 
 // sessionAdmin returns the signed-in admin, re-checked against the DB. Otherwise it
-// redirects to /login (no session) or writes 403 (not an approved admin) and returns nil.
+// redirects to /login (no valid session) or writes 403 (not an admin) and returns nil.
 func sessionAdmin(w http.ResponseWriter, r *http.Request, s *store.Store) *model.User {
-	claims := sessionClaims(r)
-	if claims == nil {
-		http.Redirect(w, r, "/login?rd=https://"+r.Host+"/admin", http.StatusFound)
+	u := sessionUser(w, r, s)
+	if u == nil {
 		return nil
 	}
-	u, err := s.GetUserByID(r.Context(), claims.Sub)
-	if err != nil || u == nil || u.Role != "admin" || !u.Approved {
+	if u.Role != "admin" {
 		http.Error(w, "Forbidden", http.StatusForbidden)
 		return nil
 	}
@@ -267,7 +267,7 @@ func AdminPage(w http.ResponseWriter, r *http.Request) {
 		case u.ID == me.ID:
 			approved.WriteString(row + `<span class="text-xs text-[#7c828a]">you</span></div></div>`)
 		default:
-			approved.WriteString(row + adminButton("revoke", u.ID, "Revoke approval", false) + adminButton("delete", u.ID, "Delete", false) + "</div></div>")
+			approved.WriteString(row + adminButton("revoke", u.ID, "Revoke approval", false) + adminButton("delete", u.ID, "Delete", false) + fmt.Sprintf(`<a href="/admin/stats?user=%s" class="h-9 px-4 inline-flex items-center rounded-full text-xs font-semibold border border-[#dee1e6] hover:border-[#0052ff] hover:text-[#0052ff]">Usage</a>`, htmlEscape(u.ID)) + "</div></div>")
 		}
 	}
 	empty := `<p class="py-3 text-sm text-[#7c828a]">None.</p>`
@@ -277,15 +277,15 @@ func AdminPage(w http.ResponseWriter, r *http.Request) {
 	if approved.Len() == 0 {
 		approved.WriteString(empty)
 	}
-	renderPage(w, "Admin — SIR Labs", "max-w-[720px]", fmt.Sprintf(`
+	appPage(w, "Admin — SIR Labs", me, "admin", fmt.Sprintf(`<div class="`+cardClass+`">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-semibold tracking-tight text-[#0a0b0d]">User approval</h1>
-        <a href="/" class="text-sm text-[#0052ff] hover:underline">%s</a>
+        <a href="/admin/stats" class="text-sm text-[#0052ff] hover:underline">Request stats →</a>
       </div>
       <h2 class="text-xs font-semibold tracking-wide uppercase text-[#5b616e] mt-2">Pending</h2>
       %s
       <h2 class="text-xs font-semibold tracking-wide uppercase text-[#5b616e] mt-8">Approved</h2>
-      %s`, htmlEscape(me.Email), pending.String(), approved.String()))
+      %s</div>`, pending.String(), approved.String()))
 }
 
 func adminButton(action, id, label string, primary bool) string {
@@ -293,8 +293,12 @@ func adminButton(action, id, label string, primary bool) string {
 	if primary {
 		style = "bg-[#0052ff] hover:bg-[#003ecc] text-white"
 	}
-	return fmt.Sprintf(`<form method="POST" action="/admin/%s"><input type="hidden" name="id" value="%s"><button type="submit" class="h-9 px-4 rounded-full text-xs font-semibold transition-all %s">%s</button></form>`,
-		action, htmlEscape(id), style, htmlEscape(label))
+	confirm := ""
+	if !primary {
+		confirm = `onsubmit="return confirm('Are you sure? This takes effect immediately.')"`
+	}
+	return fmt.Sprintf(`<form method="POST" action="/admin/%s" %s><input type="hidden" name="id" value="%s"><button type="submit" class="h-9 px-4 rounded-full text-xs font-semibold transition-all %s">%s</button></form>`,
+		action, confirm, htmlEscape(id), style, htmlEscape(label))
 }
 
 // AdminAction handles POST /admin/{approve,reject,revoke,delete} with form field id.
@@ -351,8 +355,9 @@ func AdminAction(w http.ResponseWriter, r *http.Request) {
 	case "revoke":
 		err = s.SetUserApproved(r.Context(), target.ID, false)
 	default: // reject, delete
-		err = s.DeleteUser(r.Context(), target.ID)
+		err = s.DeleteUserData(r.Context(), target.ID)
 	}
+	invalidateAuth()
 	if err != nil {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return

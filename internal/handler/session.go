@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sir-labs/sir-auth/internal/model"
 	"github.com/sir-labs/sir-auth/internal/store"
 	"github.com/sir-labs/sir-auth/internal/token"
 )
@@ -81,6 +82,10 @@ func setSessionCookie(w http.ResponseWriter, value string, maxAge int) {
 func Login(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
+		if cookieIdentity(r) != nil { // already signed in
+			http.Redirect(w, r, safeRedirect(rawRD(r.URL.RawQuery)), http.StatusFound)
+			return
+		}
 		renderSessionLogin(w, rawRD(r.URL.RawQuery), "")
 	case http.MethodPost:
 		if err := r.ParseForm(); err != nil {
@@ -145,35 +150,26 @@ func Logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
-// VerifySession handles GET /session/verify for nginx auth_request (no DB hit).
-func VerifySession(w http.ResponseWriter, r *http.Request) {
+// sessionUser returns the signed-in user, re-checked against the DB (exists, approved,
+// cookie not ended by sessions_valid_after). Otherwise it redirects to /login (or
+// writes 500 if the DB fails) and returns nil.
+func sessionUser(w http.ResponseWriter, r *http.Request, s *store.Store) *model.User {
 	claims := sessionClaims(r)
-	if claims == nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
+	var u *model.User
+	if claims != nil {
+		var err error
+		if u, err = s.GetUserByID(r.Context(), claims.Sub); err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return nil
+		}
 	}
-	w.Header().Set("X-Auth-User-Id", claims.Sub)
-	w.Header().Set("X-Auth-Email", claims.Email)
-	w.Header().Set("X-Auth-Role", claims.Role)
-	w.WriteHeader(http.StatusOK)
-}
-
-// Home handles GET /: shows the signed-in user or redirects to /login.
-func Home(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
+	if claims == nil || u == nil || !u.Approved || claims.Iat < u.SessionsValidAfter {
+		rd := "/"
+		if r.Method == http.MethodGet {
+			rd = r.URL.RequestURI()
+		}
+		http.Redirect(w, r, "/login?rd=https://"+r.Host+rd, http.StatusFound)
+		return nil
 	}
-	claims := sessionClaims(r)
-	if claims == nil {
-		http.Redirect(w, r, "/login", http.StatusFound)
-		return
-	}
-	admin := ""
-	if claims.Role == "admin" {
-		admin = ` — <a href="/admin">Admin</a>`
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>SIR Labs</title></head>
-<body style="font-family:Inter,-apple-system,sans-serif;padding:2rem">Logged in as %s%s — <a href="/logout">Log out</a></body></html>`, htmlEscape(claims.Email), admin)
+	return u
 }

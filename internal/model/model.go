@@ -16,6 +16,8 @@ type User struct {
 	Role         string `gorm:"column:role;not null;default:user"`
 	CreatedAt    int64  `gorm:"column:created_at;autoCreateTime:unix"`
 	Approved     bool   `gorm:"column:approved;not null"`
+	// SessionsValidAfter: cookies with iat before this unix time are rejected.
+	SessionsValidAfter int64 `gorm:"column:sessions_valid_after;not null;default:0"`
 
 	AuthCodes     []AuthCode     `gorm:"foreignKey:UserID"`
 	RefreshTokens []RefreshToken `gorm:"foreignKey:UserID"`
@@ -121,3 +123,49 @@ func (l *SystemLog) BeforeCreate(tx *gorm.DB) error {
 	}
 	return nil
 }
+
+// APIToken is a personal access token (sirpat_…). Only its sha256 is stored.
+type APIToken struct {
+	ID         string `gorm:"column:id;primaryKey"`
+	UserID     string `gorm:"column:user_id;not null"`
+	Name       string `gorm:"column:name;not null"`
+	TokenHash  string `gorm:"column:token_hash;not null"`
+	Prefix     string `gorm:"column:prefix;not null"`
+	CreatedAt  int64  `gorm:"column:created_at;autoCreateTime:unix"`
+	ExpiresAt  *int64 `gorm:"column:expires_at"`
+	RevokedAt  *int64 `gorm:"column:revoked_at"`
+	LastUsedAt *int64 `gorm:"column:last_used_at"`
+	LastUsedIP string `gorm:"column:last_used_ip;not null;default:''"`
+}
+
+func (t *APIToken) BeforeCreate(tx *gorm.DB) error {
+	if t.ID == "" {
+		id, err := token.RandomString(12)
+		if err != nil {
+			return err
+		}
+		t.ID = id
+	}
+	return nil
+}
+
+// Active reports whether the token is neither revoked nor expired at now (unix).
+func (t *APIToken) Active(now int64) bool {
+	return t.RevokedAt == nil && (t.ExpiresAt == nil || *t.ExpiresAt > now)
+}
+
+// RequestLog is one request on a gated route, as seen by /session/verify.
+type RequestLog struct {
+	ID      int64     `gorm:"column:id;primaryKey"`
+	TS      time.Time `gorm:"column:ts;not null"`
+	Host    string    `gorm:"column:host;not null"`
+	Method  string    `gorm:"column:method;not null"`
+	Path    string    `gorm:"column:path;not null"`
+	IP      string    `gorm:"column:ip;not null"`
+	Cred    string    `gorm:"column:cred;not null"` // "session" | "token"
+	TokenID *string   `gorm:"column:token_id"`
+	UserID  string    `gorm:"column:user_id;not null"`
+}
+
+func (APIToken) TableName() string   { return "api_tokens" }
+func (RequestLog) TableName() string { return "request_logs" }

@@ -1,0 +1,48 @@
+# Local end-to-end stack for e2e/run.sh. Isolated project (sirauth-e2e): no
+# container_name, not on sir-server_sir-net, host port bound to 127.0.0.1 only.
+name: sirauth-e2e
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sirauth
+      POSTGRES_DB: sirauth
+      POSTGRES_PASSWORD: e2e
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sirauth -d sirauth"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  sir-auth:
+    build: ..
+    environment:
+      DATABASE_URL: postgres://sirauth:e2e@db:5432/sirauth?sslmode=disable
+      JWT_SECRET: e2e-jwt-secret
+      SETUP_SECRET: e2e-setup-secret
+      COOKIE_DOMAIN: .e2e.test
+      WATCHER_URL: http://127.0.0.1:1/routes # unreachable on purpose: dashboard must still render
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  whoami:
+    image: traefik/whoami
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx:/etc/nginx/conf.d:ro
+    ports:
+      - "127.0.0.1:${E2E_PORT:-18080}:80"
+    depends_on:
+      sir-auth:
+        condition: service_healthy
+      whoami:
+        condition: service_started

@@ -395,6 +395,9 @@ func renderPage(w http.ResponseWriter, title, maxWidth, bodyHTML string) {
 	fmt.Fprintf(w, pageHTML, htmlEscape(title), maxWidth, bodyHTML)
 }
 
+// showPasswordButton toggles every password field in its form between hidden and shown.
+const showPasswordButton = `<button type="button" class="text-xs font-semibold text-[#0052ff] hover:underline" onclick="const f=this.closest('form'),show=this.textContent==='Show';f.querySelectorAll('input[name$=password]').forEach(i=>i.type=show?'text':'password');this.textContent=show?'Hide':'Show'">Show</button>`
+
 // inputClass is the shared text-input style.
 const inputClass = `w-full h-12 px-4 bg-white border border-[#dee1e6] rounded-[12px] text-[#0a0b0d] placeholder-[#7c828a] focus:border-[#0052ff] focus:ring-2 focus:ring-[#0052ff]/10 outline-none transition-all text-sm font-medium`
 
@@ -420,6 +423,7 @@ const loginFormHTML = `
         <div class="flex flex-col gap-2">
           <div class="flex justify-between items-center">
             <label class="text-xs font-semibold tracking-wide text-[#0a0b0d] uppercase">Password</label>
+            ` + showPasswordButton + `
           </div>
           <input type="password" name="password" required placeholder="Enter password" class="` + inputClass + `">
         </div>
