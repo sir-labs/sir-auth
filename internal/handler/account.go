@@ -259,8 +259,9 @@ func TokensPage(w http.ResponseWriter, r *http.Request) {
         <button type="submit" class="%s">Create token</button>
       </form>
     </section>
+    %s
     <section class="%s"><h2 class="%s">Your tokens</h2>%s</section>`,
-		mutedClass, flashHTML(r), cardClass, h2Class, labelClass, smallInput, labelClass, smallInput, opts.String(), btnPrimary, cardClass, h2Class, table))
+		mutedClass, flashHTML(r), cardClass, h2Class, labelClass, smallInput, labelClass, smallInput, opts.String(), btnPrimary, mcpInstallHTML(""), cardClass, h2Class, table))
 }
 
 func createToken(w http.ResponseWriter, r *http.Request) {
@@ -324,12 +325,13 @@ func createToken(w http.ResponseWriter, r *http.Request) {
       <p class="text-sm %s mt-3">Replace <code class="font-mono">your-app</code> with the service you want to call. A missing, wrong, expired or revoked token gets <code class="font-mono">401 {"error":"invalid_token"}</code>.</p>
       <a href="/account/tokens" class="inline-block mt-6 %s leading-10">Done</a>
     </section>
+    %s
     <script>
       function copyText(id, btn) {
         const el = document.getElementById(id);
         navigator.clipboard.writeText(el.value || el.textContent).then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1500); });
       }
-    </script>`, cardClass, mutedClass, htmlEscape(name), expiry, htmlEscape(raw), inputClass, btnPrimary, h2Class, htmlEscape(example), btnSmall, mutedClass, btnPrimary))
+    </script>`, cardClass, mutedClass, htmlEscape(name), expiry, htmlEscape(raw), inputClass, btnPrimary, h2Class, htmlEscape(example), btnSmall, mutedClass, btnPrimary, mcpInstallHTML(raw)))
 }
 
 // TokenRename handles POST /account/tokens/rename (id, name).
