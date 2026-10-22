@@ -1,11 +1,15 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -65,7 +69,23 @@ func showLoginForm(w http.ResponseWriter, r *http.Request) {
 		scope = "openid"
 	}
 
-	renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, "")
+	if !validPublicAuthorization(client, redirectURI, q.Get("code_challenge"), q.Get("code_challenge_method"), state) {
+		middleware.WriteError(w, "invalid_request", http.StatusBadRequest)
+		return
+	}
+	if client.Public {
+		if identity := cookieIdentity(r); identity != nil {
+			hidden := ""
+			for key, value := range map[string]string{"client_id": clientID, "redirect_uri": redirectURI, "state": state, "scope": scope, "code_challenge": q.Get("code_challenge"), "code_challenge_method": q.Get("code_challenge_method")} {
+				hidden += fmt.Sprintf(`<input type="hidden" name="%s" value="%s">`, htmlEscape(key), htmlEscape(value))
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			fmt.Fprintf(w, `<!doctype html><html><head><title>Connect Note App Desktop</title></head><body><main><h1>Connect Note App Desktop</h1><p>Continue as %s. This desktop app can read and edit your private notes and files.</p><form method="post" action="/oauth/authorize">%s<button type="submit">Connect Note App Desktop</button></form></main></body></html>`, htmlEscape(identity.Email), hidden)
+			return
+		}
+	}
+	renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, "", q.Get("code_challenge"), q.Get("code_challenge_method"))
 }
 
 func processAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -99,13 +119,26 @@ func processAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := s.GetUserByEmail(r.Context(), email)
-	if err != nil || user == nil || !token.VerifyPassword(password, user.PasswordHash, user.Salt) {
-		renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, "Incorrect email or password. Please try again.")
+	if !validPublicAuthorization(client, redirectURI, r.FormValue("code_challenge"), r.FormValue("code_challenge_method"), state) {
+		middleware.WriteError(w, "invalid_request", http.StatusBadRequest)
+		return
+	}
+	var user *model.User
+	authenticatedSession := false
+	if client.Public && email == "" && sameOrigin(r) {
+		if identity := cookieIdentity(r); identity != nil {
+			user, err = s.GetUserByID(r.Context(), identity.ID)
+			authenticatedSession = err == nil && user != nil
+		}
+	} else {
+		user, err = s.GetUserByEmail(r.Context(), email)
+	}
+	if err != nil || user == nil || (!authenticatedSession && !token.VerifyPassword(password, user.PasswordHash, user.Salt)) {
+		renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, "Incorrect email or password. Please try again.", r.FormValue("code_challenge"), r.FormValue("code_challenge_method"))
 		return
 	}
 	if !user.Approved {
-		renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, pendingMsg)
+		renderLoginForm(w, client.Name, clientID, redirectURI, state, scope, pendingMsg, r.FormValue("code_challenge"), r.FormValue("code_challenge_method"))
 		return
 	}
 
@@ -113,7 +146,7 @@ func processAuthorize(w http.ResponseWriter, r *http.Request) {
 		scope = "openid"
 	}
 
-	ac, err := s.CreateAuthCode(r.Context(), clientID, user.ID, redirectURI, scope)
+	ac, err := s.CreateAuthCode(r.Context(), clientID, user.ID, redirectURI, scope, r.FormValue("code_challenge"))
 	if err != nil {
 		redirectWithError(w, r, redirectURI, state, "server_error")
 		return
@@ -152,7 +185,7 @@ func exchangeAuthCode(w http.ResponseWriter, r *http.Request) {
 	clientID := r.FormValue("client_id")
 	clientSecret := r.FormValue("client_secret")
 
-	if code == "" || redirectURI == "" || clientID == "" || clientSecret == "" {
+	if code == "" || redirectURI == "" || clientID == "" {
 		middleware.WriteOAuthError(w, "invalid_request", http.StatusBadRequest)
 		return
 	}
@@ -165,7 +198,7 @@ func exchangeAuthCode(w http.ResponseWriter, r *http.Request) {
 	defer s.Close()
 
 	client, err := s.GetClientByID(r.Context(), clientID)
-	if err != nil || client == nil || client.ClientSecret != clientSecret {
+	if err != nil || client == nil || (!client.Public && (clientSecret == "" || client.ClientSecret != clientSecret)) {
 		middleware.WriteOAuthError(w, "invalid_client", http.StatusUnauthorized)
 		return
 	}
@@ -183,7 +216,7 @@ func exchangeAuthCode(w http.ResponseWriter, r *http.Request) {
 		middleware.WriteOAuthError(w, "invalid_grant", http.StatusBadRequest)
 		return
 	}
-	if !loopbackURIMatches(ac.RedirectURI, redirectURI) {
+	if ((client.Public || ac.CodeChallenge != "") && !verifyPKCE(ac.CodeChallenge, r.FormValue("code_verifier"))) || (client.Public && ac.RedirectURI != redirectURI) || !loopbackURIMatches(ac.RedirectURI, redirectURI) {
 		middleware.WriteOAuthError(w, "invalid_grant", http.StatusBadRequest)
 		return
 	}
@@ -221,7 +254,7 @@ func exchangeRefreshToken(w http.ResponseWriter, r *http.Request) {
 	clientID := r.FormValue("client_id")
 	clientSecret := r.FormValue("client_secret")
 
-	if rawToken == "" || clientID == "" || clientSecret == "" {
+	if rawToken == "" || clientID == "" {
 		middleware.WriteOAuthError(w, "invalid_request", http.StatusBadRequest)
 		return
 	}
@@ -234,7 +267,7 @@ func exchangeRefreshToken(w http.ResponseWriter, r *http.Request) {
 	defer s.Close()
 
 	client, err := s.GetClientByID(r.Context(), clientID)
-	if err != nil || client == nil || client.ClientSecret != clientSecret {
+	if err != nil || client == nil || (!client.Public && (clientSecret == "" || client.ClientSecret != clientSecret)) {
 		middleware.WriteOAuthError(w, "invalid_client", http.StatusUnauthorized)
 		return
 	}
@@ -259,8 +292,8 @@ func exchangeRefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.RevokeRefreshToken(r.Context(), rawToken); err != nil {
-		middleware.WriteOAuthError(w, "server_error", http.StatusInternalServerError)
+	if claimed, err := s.ClaimRefreshToken(r.Context(), rawToken); err != nil || !claimed {
+		middleware.WriteOAuthError(w, "invalid_grant", http.StatusBadRequest)
 		return
 	}
 
@@ -360,12 +393,15 @@ func htmlEscape(s string) string {
 	return s
 }
 
-func renderLoginForm(w http.ResponseWriter, clientName, clientID, redirectURI, state, scope, errorMsg string) {
+func renderLoginForm(w http.ResponseWriter, clientName, clientID, redirectURI, state, scope, errorMsg string, pkce ...string) {
 	hidden := fmt.Sprintf(`<input type="hidden" name="client_id" value="%s">
         <input type="hidden" name="redirect_uri" value="%s">
         <input type="hidden" name="state" value="%s">
         <input type="hidden" name="scope" value="%s">`,
 		htmlEscape(clientID), htmlEscape(redirectURI), htmlEscape(state), htmlEscape(scope))
+	if len(pkce) == 2 {
+		hidden += fmt.Sprintf(`<input type="hidden" name="code_challenge" value="%s"><input type="hidden" name="code_challenge_method" value="%s">`, htmlEscape(pkce[0]), htmlEscape(pkce[1]))
+	}
 	renderForm(w, clientName, "/oauth/authorize", hidden, errorMsg)
 }
 
@@ -489,3 +525,24 @@ const pageHTML = `<!DOCTYPE html>
   </footer>
 </body>
 </html>`
+
+var verifierPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
+var challengePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{43}$`)
+
+func verifyPKCE(challenge, verifier string) bool {
+	if !verifierPattern.MatchString(verifier) || !challengePattern.MatchString(challenge) {
+		return false
+	}
+	hash := sha256.Sum256([]byte(verifier))
+	return subtle.ConstantTimeCompare([]byte(base64.RawURLEncoding.EncodeToString(hash[:])), []byte(challenge)) == 1
+}
+func validPublicAuthorization(client *model.OAuthClient, redirect, challenge, method, state string) bool {
+	if !client.Public {
+		return challenge == "" || (method == "S256" && challengePattern.MatchString(challenge))
+	}
+	u, err := url.Parse(redirect)
+	if err != nil || u.Scheme != "http" || u.Hostname() != "127.0.0.1" || u.Port() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	return loopbackURIMatches(client.RedirectURI, redirect) && method == "S256" && challengePattern.MatchString(challenge) && len(state) >= 32 && len(state) <= 200
+}

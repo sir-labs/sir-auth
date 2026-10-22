@@ -36,6 +36,8 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 
 // OAuthClient is a registered OAuth 2.0 client application.
 type OAuthClient struct {
+	Public       bool   `gorm:"column:public;not null;default:false"`
+	RedirectURI  string `gorm:"column:redirect_uri;not null;default:''"`
 	ClientID     string `gorm:"column:client_id;primaryKey"`
 	ClientSecret string `gorm:"column:client_secret;not null"`
 	Name         string `gorm:"column:name;not null"`
@@ -50,13 +52,14 @@ func (OAuthClient) TableName() string {
 
 // AuthCode is a single-use authorization code (expires in 10 minutes).
 type AuthCode struct {
-	Code        string `gorm:"column:code;primaryKey"`
-	ClientID    string `gorm:"column:client_id;not null;index"`
-	UserID      string `gorm:"column:user_id;not null;index"`
-	RedirectURI string `gorm:"column:redirect_uri;not null"`
-	Scope       string `gorm:"column:scope;not null"`
-	ExpiresAt   int64  `gorm:"column:expires_at;not null"`
-	Used        bool   `gorm:"column:used;not null;default:false"`
+	CodeChallenge string `gorm:"column:code_challenge;not null;default:''"`
+	Code          string `gorm:"column:code;primaryKey"`
+	ClientID      string `gorm:"column:client_id;not null;index"`
+	UserID        string `gorm:"column:user_id;not null;index"`
+	RedirectURI   string `gorm:"column:redirect_uri;not null"`
+	Scope         string `gorm:"column:scope;not null"`
+	ExpiresAt     int64  `gorm:"column:expires_at;not null"`
+	Used          bool   `gorm:"column:used;not null;default:false"`
 
 	User   User        `gorm:"foreignKey:UserID"`
 	Client OAuthClient `gorm:"foreignKey:ClientID"`

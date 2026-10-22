@@ -101,3 +101,11 @@ CREATE TABLE IF NOT EXISTS route_policies (
   updated_at BIGINT NOT NULL,
   updated_by TEXT NOT NULL DEFAULT ''
 );
+
+-- Public native client: no shared secret is distributed with the application.
+ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false;
+ALTER TABLE oauth_clients ADD COLUMN IF NOT EXISTS redirect_uri text NOT NULL DEFAULT '';
+ALTER TABLE auth_codes ADD COLUMN IF NOT EXISTS code_challenge text NOT NULL DEFAULT '';
+INSERT INTO oauth_clients(client_id,client_secret,name,public,redirect_uri)
+VALUES('note-app-desktop','','Note App Desktop',true,'http://127.0.0.1/callback')
+ON CONFLICT(client_id) DO NOTHING;

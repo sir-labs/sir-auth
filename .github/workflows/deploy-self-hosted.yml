@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test OAuth including PostgreSQL replay protection
+        run: bash scripts/test-oauth.sh
+
       - run: docker version
 
       - name: Ensure sir-net exists
@@ -36,7 +39,7 @@ jobs:
             echo "COOKIE_DOMAIN=.sir-labs.com"
           } > .env
 
-      - run: docker compose -f compose.yaml -f compose.sir.yaml up --build -d --remove-orphans
+      - run: flock --wait 600 /tmp/sir-deploy.lock docker compose -f compose.yaml -f compose.sir.yaml up --build -d --remove-orphans
 
       - name: Wait for health
         run: |

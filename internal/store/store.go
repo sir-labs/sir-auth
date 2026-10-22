@@ -130,12 +130,15 @@ func (s *Store) CreateClient(ctx context.Context, c model.OAuthClient) error {
 
 // ── Auth Codes ────────────────────────────────────────────────────────────────
 
-func (s *Store) CreateAuthCode(ctx context.Context, clientID, userID, redirectURI, scope string) (*model.AuthCode, error) {
+func (s *Store) CreateAuthCode(ctx context.Context, clientID, userID, redirectURI, scope string, challenge ...string) (*model.AuthCode, error) {
 	ac := &model.AuthCode{
 		ClientID:    clientID,
 		UserID:      userID,
 		RedirectURI: redirectURI,
 		Scope:       scope,
+	}
+	if len(challenge) > 0 {
+		ac.CodeChallenge = challenge[0]
 	}
 	if err := s.db.WithContext(ctx).Create(ac).Error; err != nil {
 		return nil, err
@@ -155,8 +158,12 @@ func (s *Store) ConsumeAuthCode(ctx context.Context, code string) (*model.AuthCo
 	if ac.Used || time.Now().Unix() > ac.ExpiresAt {
 		return nil, errors.New("code invalid or expired")
 	}
-	if err := s.db.WithContext(ctx).Model(&ac).Update("used", true).Error; err != nil {
-		return nil, err
+	result := s.db.WithContext(ctx).Model(&ac).Where("used = false AND expires_at > ?", time.Now().Unix()).Update("used", true)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, errors.New("code invalid or expired")
 	}
 	return &ac, nil
 }
@@ -402,4 +409,10 @@ func (s *Store) SetRoutePolicy(ctx context.Context, p model.RoutePolicy) error {
 
 func (s *Store) DeleteRoutePolicy(ctx context.Context, host string) error {
 	return s.db.WithContext(ctx).Where("host = ?", host).Delete(&model.RoutePolicy{}).Error
+}
+
+// Claim a refresh token once, even when two requests race.
+func (s *Store) ClaimRefreshToken(ctx context.Context, raw string) (bool, error) {
+	result := s.db.WithContext(ctx).Model(&model.RefreshToken{}).Where("token = ? AND revoked = false AND expires_at > ?", raw, time.Now().Unix()).Update("revoked", true)
+	return result.RowsAffected == 1, result.Error
 }
